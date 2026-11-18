@@ -7,7 +7,7 @@ const PREF_KEY = 'chordstudy.prefs.v1';
 
 const S = {
   mood: 'dreamy', key: null, tokens: [], custom: false,
-  level: 'rich', sound: 'strings', speed: 'medium', gFrac: 0.36, loop: false, no: 1,
+  level: 'rich', sound: 'strings', speed: 'medium', dyn: null, gFrac: 0.36, loop: false, no: 1,
   study: null, tl: null, playing: false, t: 0, nowIdx: -1,
 };
 const player = new CS.Player();
@@ -60,13 +60,13 @@ function setStudy(tokens, key) {
   $('inp').value = S.tokens.join(' ');
   savePrefs();
 }
-function rebuildTimeline() { S.tl = CS.timeline(S.study, D(), S.gFrac, S.loop); }
+function rebuildTimeline() { S.tl = CS.timeline(S.study, D(), S.gFrac, S.loop); refreshDyn(); }
 
 function play(fromK = 0) {
   if (rec) return;
   rebuildTimeline();
   player.setLevels(1, 0);
-  player.start(S.tl, S.sound, fromK);
+  player.start(S.tl, S.sound, fromK, { dyn: S.dyn });
   S.playing = true;
   $('playhint').classList.remove('first');
   updateTransport();
@@ -204,7 +204,7 @@ function snapshot() {
 function saveStudy() {
   const item = {
     id: Date.now().toString(36), title: title(), mood: S.mood, custom: S.custom,
-    tokens: S.tokens, key: S.key, level: S.level, sound: S.sound, speed: S.speed, gFrac: S.gFrac,
+    tokens: S.tokens, key: S.key, level: S.level, dyn: S.dyn, sound: S.sound, speed: S.speed, gFrac: S.gFrac,
     no: S.no, created: Date.now(), thumb: snapshot(),
   };
   const existing = library.findIndex(x => x.no === S.no);
@@ -216,7 +216,8 @@ function saveStudy() {
 }
 function loadItem(x) {
   stop();
-  S.mood = x.mood; S.custom = !!x.custom; if (x.level) S.level = x.level; S.sound = x.sound; S.speed = x.speed; S.gFrac = x.gFrac ?? 0.36; S.no = x.no;
+  S.mood = x.mood; S.custom = !!x.custom; if (x.level) S.level = x.level;
+  S.dyn = { ...DYN_DEFAULT, ...(x.dyn || {}) }; S.sound = x.sound; S.speed = x.speed; S.gFrac = x.gFrac ?? 0.36; S.no = x.no;
   syncControls();
   setStudy(x.tokens, x.key);
 }
@@ -252,7 +253,7 @@ const b64e = s => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, '-').repl
 const b64d = s => decodeURIComponent(escape(atob(s.replace(/-/g, '+').replace(/_/g, '/'))));
 function shareURL() {
   const data = { t: S.tokens.join(' '), k: [S.key.letter, S.key.pc, S.key.minor ? 1 : 0], m: S.mood, c: S.custom ? 1 : 0,
-                 s: S.sound, v: S.speed, g: S.gFrac, n: S.no, h: S.level };
+                 s: S.sound, v: S.speed, g: S.gFrac, n: S.no, h: S.level, y: S.dyn.mode === 'off' ? undefined : S.dyn };
   return location.href.split('#')[0] + '#s=' + b64e(JSON.stringify(data));
 }
 function fromHash() {
@@ -261,7 +262,7 @@ function fromHash() {
   try {
     const d = JSON.parse(b64d(m[1]));
     S.mood = d.m; S.custom = !!d.c; S.sound = d.s in CS.SOUNDS ? d.s : 'strings'; S.speed = d.v in SPEEDS ? d.v : 'medium';
-    S.gFrac = +d.g || 0.36; S.no = d.n || 1; if (d.h in CS.LEVELS) S.level = d.h;
+    S.gFrac = +d.g || 0.36; S.no = d.n || 1; if (d.h in CS.LEVELS) S.level = d.h; S.dyn = { ...DYN_DEFAULT, ...(d.y || {}) };
     setStudy(CS.tokenize(d.t), { letter: d.k[0], pc: d.k[1], minor: !!d.k[2] });
     return true;
   } catch (e) { return false; }
@@ -297,7 +298,7 @@ function startRecording() {
   };
   rec.start();
   player.setLevels(1, 0);
-  player.start(S.tl, S.sound, 0);
+  player.start(S.tl, S.sound, 0, { dyn: S.dyn });
   S.playing = true;
   updateTransport();
   toast('Recording. Let it play to the end.');
@@ -320,7 +321,7 @@ function show(view) {
 document.querySelectorAll('[data-view]').forEach(el => el.addEventListener('click', e => { e.preventDefault(); show(el.dataset.view); }));
 
 // ------------------------------------------------------------ prefs
-function savePrefs() { store.set(PREF_KEY, { sound: S.sound, speed: S.speed, mood: S.mood, level: S.level }); }
+function savePrefs() { store.set(PREF_KEY, { sound: S.sound, speed: S.speed, mood: S.mood, level: S.level, dyn: S.dyn }); }
 const LEVEL_HINTS = {
   smooth: 'Gentle, diatonic colours',
   rich: 'Adds the odd borrowed or altered chord',
@@ -387,6 +388,103 @@ document.addEventListener('keydown', e => {
   }
 });
 
+// ------------------------------------------------------------ dynamics controls
+const DYN_DEFAULT = { mode: 'off', start: 0.3, peak: 1, reach: 0.75, curve: 'smooth' };
+S.dyn = { ...DYN_DEFAULT };
+const DYN_MODES = { off: { label: 'Off' }, build: { label: 'Build' }, swell: { label: 'Swell' } };
+const DYN_CURVES = { smooth: { label: 'Smooth' }, steady: { label: 'Steady' }, late: { label: 'Late burst' } };
+const dynViews = [];
+function mountDyn(el, spanFn, progFn) {
+  el.innerHTML = `
+    <div class="seg dyn-mode"></div>
+    <canvas class="dyn-graph" width="840" height="160" aria-label="Volume over time"></canvas>
+    <div class="dyn-rows">
+      <label class="dyn-row"><span>Start</span><input type="range" data-k="start" min="0" max="1" step="0.01"><output></output></label>
+      <label class="dyn-row"><span>Peak</span><input type="range" data-k="peak" min="0.3" max="1" step="0.01"><output></output></label>
+      <label class="dyn-row"><span>Peak at</span><input type="range" data-k="reach" min="0.05" max="1" step="0.01"><output></output></label>
+      <div class="dyn-row"><span>Curve</span><div class="seg dyn-curve"></div></div>
+    </div>`;
+  const view = { el, spanFn, progFn, canvas: el.querySelector('canvas'), lastU: undefined };
+  el.querySelectorAll('input[type=range]').forEach(inp => {
+    inp.oninput = () => { S.dyn[inp.dataset.k] = +inp.value; dynChanged(); };
+  });
+  dynViews.push(view);
+  refreshDyn();
+  return view;
+}
+function dynChanged() {
+  player.setDyn(S.dyn);
+  savePrefs();
+  refreshDyn();
+}
+const pct = v => Math.round(v * 100) + '%';
+function refreshDyn() {
+  const d = S.dyn;
+  for (const v of dynViews) {
+    seg(v.el.querySelector('.dyn-mode'), DYN_MODES, d.mode, id => { S.dyn.mode = id; dynChanged(); });
+    seg(v.el.querySelector('.dyn-curve'), DYN_CURVES, d.curve, id => { S.dyn.curve = id; dynChanged(); });
+    v.el.querySelector('.dyn-rows').classList.toggle('off', d.mode === 'off');
+    v.el.querySelectorAll('input[type=range]').forEach(inp => {
+      if (document.activeElement !== inp) inp.value = d[inp.dataset.k];
+      const out = inp.nextElementSibling;
+      const k = inp.dataset.k;
+      if (k === 'reach') {
+        const span = v.spanFn();
+        out.textContent = span ? `${(d.reach * span).toFixed(1)}s` : pct(d.reach);
+      } else {
+        out.innerHTML = `${pct(d[k])}<i>${CS.dynMarking(d[k])}</i>`;
+      }
+    });
+    drawDynGraph(v, true);
+  }
+}
+function drawDynGraph(v, force) {
+  if (v.el.offsetParent === null) return; // hidden tab
+  const u = v.progFn();
+  if (!force && (u === v.lastU || (u != null && v.lastU != null && Math.abs(u - v.lastU) < 0.002))) return;
+  v.lastU = u;
+  const c = v.canvas.getContext('2d');
+  const W = v.canvas.width, H = v.canvas.height;
+  const css = getComputedStyle(document.documentElement);
+  const ink = css.getPropertyValue('--ink').trim(), accent = css.getPropertyValue('--accent').trim(), muted = css.getPropertyValue('--muted').trim();
+  c.clearRect(0, 0, W, H);
+  const pad = 14, top = 40, bot = H - 14;
+  const env = CS.envelope(S.dyn) || (() => 1);
+  const yOf = val => bot - val * (bot - top);
+  const xOf = uu => pad + uu * (W - pad * 2);
+  // full-scale guide
+  c.strokeStyle = muted; c.globalAlpha = 0.3; c.setLineDash([6, 6]); c.lineWidth = 1.5;
+  c.beginPath(); c.moveTo(pad, yOf(1)); c.lineTo(W - pad, yOf(1)); c.stroke();
+  c.setLineDash([]); c.globalAlpha = 1;
+  const path = () => { c.beginPath(); c.moveTo(xOf(0), bot); for (let i = 0; i <= 120; i++) c.lineTo(xOf(i / 120), yOf(env(i / 120))); c.lineTo(xOf(1), bot); c.closePath(); };
+  path(); c.fillStyle = accent; c.globalAlpha = 0.14; c.fill(); c.globalAlpha = 1;
+  if (u != null) {
+    c.save(); c.beginPath(); c.rect(0, 0, xOf(u), H); c.clip();
+    path(); c.fillStyle = accent; c.globalAlpha = 0.4; c.fill(); c.restore(); c.globalAlpha = 1;
+  }
+  c.beginPath();
+  for (let i = 0; i <= 120; i++) { const x = xOf(i / 120), y = yOf(env(i / 120)); i ? c.lineTo(x, y) : c.moveTo(x, y); }
+  c.strokeStyle = accent; c.lineWidth = 3; c.stroke();
+  c.font = 'italic 700 22px Georgia, serif'; c.fillStyle = ink; c.textBaseline = 'bottom';
+  if (S.dyn.mode === 'off') {
+    c.font = '600 20px Inter, sans-serif'; c.fillStyle = muted; c.fillText('Constant level', pad + 4, yOf(1) - 6);
+  } else {
+    const d = S.dyn;
+    c.textAlign = 'left'; c.fillText(CS.dynMarking(d.start), pad + 4, Math.min(bot, yOf(d.start) - 6));
+    const px = xOf(d.reach);
+    c.fillStyle = accent; c.beginPath(); c.arc(px, yOf(d.peak), 7, 0, Math.PI * 2); c.fill();
+    c.fillStyle = ink; c.textAlign = px > W - 80 ? 'right' : 'center';
+    if (px - pad > 50) c.fillText(CS.dynMarking(d.peak), Math.min(px, W - pad - 4), yOf(d.peak) - 10);
+    c.textAlign = 'left';
+  }
+  if (u != null) { c.fillStyle = ink; c.fillRect(xOf(u) - 1.5, top - 8, 3, bot - top + 8); }
+}
+function tickDyn() { for (const v of dynViews) drawDynGraph(v, false); }
+const createProgress = () => {
+  if (!S.playing || !S.tl) return null;
+  return S.loop ? CS.mod(S.t, S.tl.total) / S.tl.total : Math.min(1, S.t / S.tl.total);
+};
+
 // ------------------------------------------------------------ frame loop
 function frame() {
   if (S.playing) {
@@ -402,7 +500,8 @@ function frame() {
       if (k !== S.nowIdx) { S.nowIdx = k; markChip(k); }
     }
   }
-  if (!$('view-create').hidden) CS.render(ctx, S.tl, S.t, { no: S.no, scale: 2, settled: !S.playing && S.t === 0 });
+  if (!$('view-create').hidden) CS.render(ctx, S.tl, S.t, { no: S.no, scale: 2, settled: !S.playing && S.t === 0, dyn: S.dyn });
+  tickDyn();
   requestAnimationFrame(frame);
 }
 
@@ -411,6 +510,7 @@ const prefs = store.get(PREF_KEY, {});
 if (prefs.sound in CS.SOUNDS) S.sound = prefs.sound;
 if (prefs.speed in SPEEDS) S.speed = prefs.speed;
 if (prefs.level in CS.LEVELS) S.level = prefs.level;
+S.dyn = { ...DYN_DEFAULT, ...(prefs.dyn || {}) };
 if (!fromHash()) {
   S.mood = 'dreamy';
   S.no = nextNo();
@@ -418,6 +518,7 @@ if (!fromHash()) {
   setStudy(CS.generate('dreamy', key, 0), key);
 }
 syncControls();
+mountDyn($('dyn'), () => S.tl ? S.tl.total : 0, createProgress);
 renderLibraryCount();
 updateTransport();
 $('playhint').classList.add('first');
@@ -426,5 +527,5 @@ const fontsReady = document.fonts && document.fonts.load
 fontsReady.catch(() => {}).finally(() => requestAnimationFrame(frame));
 window.__cs = { S, player };
 // shared with the Video tab
-CS.app = { S, player, toast, seg, speedD: D, generate: () => CS.generate(S.mood, S.key, null, S.level), stopCreate: () => { if (S.playing) stop(); } };
+CS.app = { S, player, toast, seg, mountDyn, refreshDyn, speedD: D, generate: () => CS.generate(S.mood, S.key, null, S.level), stopCreate: () => { if (S.playing) stop(); } };
 })();

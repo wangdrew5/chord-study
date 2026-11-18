@@ -34,6 +34,27 @@ function impulse(ctx, dur, decay) {
   return buf;
 }
 
+// Dynamics: level over the piece, u in [0,1]. mode 'build' rises to the peak and holds;
+// 'swell' rises to the peak and falls back to the start level by the end.
+function envelope(d) {
+  if (!d || d.mode === 'off') return null;
+  const shapes = {
+    smooth: u => u * u * (3 - 2 * u),
+    steady: u => u,
+    late: u => u * u * u,
+  };
+  const up = shapes[d.curve] || shapes.smooth;
+  const r = Math.max(0.02, Math.min(1, d.reach));
+  return u => {
+    if (u <= r) return d.start + (d.peak - d.start) * up(u / r);
+    if (d.mode === 'build' || r >= 1) return d.peak;
+    const w = (u - r) / (1 - r);
+    return d.peak + (d.start - d.peak) * shapes.smooth(w);
+  };
+}
+const toneFor = v => 1400 * Math.pow(16000 / 1400, Math.max(0, Math.min(1, v)));
+const marking = v => v < 0.2 ? 'pp' : v < 0.38 ? 'p' : v < 0.55 ? 'mp' : v < 0.72 ? 'mf' : v < 0.88 ? 'f' : 'ff';
+
 class Player {
   constructor() { this.A = null; this.voices = []; this.notes = []; this.struck = []; this.timer = null; this.t0 = 0; }
 
@@ -43,7 +64,9 @@ class Player {
     const comp = A.createDynamicsCompressor();
     comp.threshold.value = -18; comp.ratio.value = 3; comp.attack.value = 0.03; comp.release.value = 0.4;
     const out = A.createGain(); out.gain.value = 0.9;
-    comp.connect(out); out.connect(A.destination);
+    // dyn: the crescendo/swell envelope, after the compressor so it isn't flattened
+    this.dyn = A.createGain(); this.dyn.gain.value = 1;
+    comp.connect(this.dyn); this.dyn.connect(out); out.connect(A.destination);
     this.recDest = A.createMediaStreamDestination();
     out.connect(this.recDest);
 
@@ -57,7 +80,9 @@ class Player {
     this.bus.connect(pre); pre.connect(conv); conv.connect(this.wet); this.wet.connect(warm);
     // music and an optional external source (a video's own audio) are mixed separately
     this.music = A.createGain(); this.music.gain.value = 1;
-    warm.connect(this.music); this.music.connect(comp);
+    // dynTone: quieter = darker, louder = brighter, like a real section digging in
+    this.dynTone = A.createBiquadFilter(); this.dynTone.type = 'lowpass'; this.dynTone.frequency.value = 20000; this.dynTone.Q.value = 0.5;
+    warm.connect(this.dynTone); this.dynTone.connect(this.music); this.music.connect(comp);
     this.external = A.createGain(); this.external.gain.value = 0;
     this.external.connect(out);
     this.out = out;
@@ -79,6 +104,45 @@ class Player {
 
   now() { return this.A ? this.A.currentTime - this.t0 : 0; }
 
+  // ---- dynamics envelope
+  // Change the envelope live (re-schedules from the current playback position).
+  setDyn(dyn) {
+    this.dynCfg = dyn;
+    this.env = envelope(dyn);
+    if (this.A && this.timer) this.scheduleDyn(Math.max(0, this.now() + 0.15), this.A.currentTime + 0.15);
+  }
+  scheduleDyn(fromT, at) {
+    const g = this.dyn.gain, f = this.dynTone.frequency;
+    const now = this.A.currentTime;
+    g.cancelScheduledValues(0); f.cancelScheduledValues(0);
+    g.setValueAtTime(g.value, now); f.setValueAtTime(f.value, now);
+    this.dynCycleEnd = null;
+    if (!this.env) {
+      g.setTargetAtTime(1, now, 0.08); f.setTargetAtTime(20000, now, 0.08);
+      return;
+    }
+    const span = this.span;
+    const local = this.tl.loop ? CS.mod(fromT, span) : Math.min(fromT, span);
+    const dur = span - local;
+    if (dur < 0.05) { const v = this.env(1); g.setTargetAtTime(v, now, 0.1); f.setTargetAtTime(toneFor(v), now, 0.1); return; }
+    // glide to the envelope's current value, then follow the curve
+    const v0 = this.env(local / span);
+    g.linearRampToValueAtTime(v0, at); f.linearRampToValueAtTime(toneFor(v0), at);
+    this.envCurve(local, at + 0.002, dur);
+    this.dynCycleEnd = at + 0.002 + dur;
+  }
+  envCurve(local, at, dur) {
+    const span = this.span;
+    const n = Math.max(2, Math.ceil(dur * 24));
+    const gs = new Float32Array(n), fs = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const v = this.env(Math.min(1, (local + dur * i / (n - 1)) / span));
+      gs[i] = v; fs[i] = toneFor(v);
+    }
+    this.dyn.gain.setValueCurveAtTime(gs, at, dur);
+    this.dynTone.frequency.setValueCurveAtTime(fs, at, dur);
+  }
+
   // fromK: start playback at chord k (so you can hear a swapped chord right away)
   // opts.offset: start mid-timeline at exactly this time (video sync); opts.releaseLead: fade-out lead
   start(tl, soundId, fromK = 0, opts = {}) {
@@ -91,6 +155,9 @@ class Player {
     if (opts.offset != null) fromK = tl.indexAt(opts.offset);
     this.t0 = at - (opts.offset != null ? opts.offset : tl.startOf(fromK));
     this.releaseLead = opts.releaseLead ?? 0.4;
+    this.span = opts.span || tl.total;
+    this.env = envelope(opts.dyn !== undefined ? (this.dynCfg = opts.dyn) : this.dynCfg);
+    this.scheduleDyn(opts.offset != null ? opts.offset : tl.startOf(fromK), at);
     this.lastStrike = 0;
     this.nextK = fromK + 1;
     this.endScheduled = false;
@@ -107,6 +174,11 @@ class Player {
   pump() {
     const tl = this.tl;
     const now = this.now();
+    // looping: queue the next cycle of the envelope just before this one ends
+    if (tl.loop && this.env && this.dynCycleEnd && this.dynCycleEnd - this.A.currentTime < 1) {
+      this.envCurve(0, this.dynCycleEnd + 0.002, this.span);
+      this.dynCycleEnd += this.span + 0.002;
+    }
     while (this.nextK < tl.Kmax && tl.startOf(this.nextK) - tl.gAt(this.nextK) / 2 < now + 2.5) { this.boundary(this.nextK); this.nextK++; }
     if (!tl.loop && !this.endScheduled && this.nextK >= tl.st.N) {
       this.endScheduled = true;
@@ -220,6 +292,7 @@ class Player {
 
   stop(fade = 0.25) {
     clearInterval(this.timer);
+    this.timer = null;
     if (!this.A) return;
     const now = this.A.currentTime;
     for (const n of [...this.voices, ...this.struck]) {
@@ -233,5 +306,7 @@ class Player {
 }
 
 CS.Player = Player;
+CS.envelope = envelope;
+CS.dynMarking = marking;
 CS.SOUNDS = SOUNDS;
 })();

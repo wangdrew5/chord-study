@@ -163,6 +163,7 @@ function fit() {
   V.D = D;
   V.tl = CS.timeline(st, D, 0.36, false);
   renderChips();
+  app.refreshDyn();
   hints();
   if (V.playing) startAudio();
 }
@@ -197,7 +198,7 @@ function startAudio() {
   if (!V.tl) return;
   player.attachMedia(vid);
   applyMix();
-  player.start(V.tl, V.sound, 0, { offset: vid.currentTime + 0.08, releaseLead: 1.8 });
+  player.start(V.tl, V.sound, 0, { offset: vid.currentTime + 0.08, releaseLead: 1.8, dyn: app.S.dyn, span: V.dur });
   V.lastSync = performance.now();
 }
 function applyMix() {
@@ -448,6 +449,7 @@ cv.addEventListener('drop', e => { e.preventDefault(); load(e.dataTransfer.files
 
 document.addEventListener('cs:view', e => {
   if (e.detail !== 'video') { if (V.rec) cancelExport(); pause(); return; }
+  app.refreshDyn();
   if (!V.tokens) { pullFromCreate(false); renderChips(); }
 });
 document.addEventListener('keydown', e => {
@@ -458,6 +460,7 @@ document.addEventListener('keydown', e => {
 });
 
 $('v-mix').value = V.mix;
+const dynView = app.mountDyn($('v-dyn'), () => V.dur || 0, () => V.playing && V.dur ? vid.currentTime / V.dur : null);
 updateUI();
 hints();
 requestAnimationFrame(draw);

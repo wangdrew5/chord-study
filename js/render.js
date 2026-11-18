@@ -152,6 +152,34 @@ function render(c, tl, t, o) {
   c.fillRect(KB.x, 800, KB.w, 1);
   c.fillStyle = INK;
   c.fillRect(KB.x, 799, KB.w * prog, 3);
+
+  if (o.dyn && o.dyn.mode !== 'off' && CS.envelope) hairpin(c, CS.envelope(o.dyn), o.dyn, prog);
+}
+
+// Dynamics shown as a musical hairpin: its width follows the volume envelope.
+function hairpin(c, env, d, prog) {
+  const x0 = KB.x, w = KB.w, y = 846, maxH = 10;
+  const shape = () => {
+    c.beginPath();
+    for (let i = 0; i <= 120; i++) c.lineTo(x0 + w * i / 120, y - (0.6 + env(i / 120) * maxH));
+    for (let i = 120; i >= 0; i--) c.lineTo(x0 + w * i / 120, y + (0.6 + env(i / 120) * maxH));
+    c.closePath();
+  };
+  shape(); c.fillStyle = '#DCD8CF'; c.fill();
+  if (prog > 0) {
+    c.save(); c.beginPath(); c.rect(x0, y - maxH - 2, w * prog, maxH * 2 + 4); c.clip();
+    shape(); c.fillStyle = INK; c.fill(); c.restore();
+  }
+  c.font = 'italic 700 15px Georgia, "Times New Roman", serif';
+  c.fillStyle = INK;
+  c.textBaseline = 'alphabetic';
+  const ty = y + maxH + 22;
+  const mark = (txt, x, align) => { c.textAlign = align; c.fillText(txt, x, ty); };
+  mark(CS.dynMarking(d.start), x0, 'left');
+  const px = x0 + w * d.reach;
+  if (px - x0 > 40 && x0 + w - px > (d.mode === 'swell' ? 40 : -1)) mark(CS.dynMarking(d.peak), Math.min(px, x0 + w), px > x0 + w - 20 ? 'right' : 'center');
+  if (d.mode === 'swell' && x0 + w - px > 40) mark(CS.dynMarking(d.start), x0 + w, 'right');
+  c.textAlign = 'left';
 }
 
 function keyboard(c, tl, t, KB) {
