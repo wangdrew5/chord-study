@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=7">
 </head>
 <body>
 <header class="top">
@@ -29,7 +29,7 @@
     <div class="stage">
       <div class="card" id="card" role="button" aria-label="Play or stop" tabindex="0">
         <canvas id="cv" width="1080" height="1920"></canvas>
-        <div class="playhint" id="playhint"><span>▶</span></div>
+        <div class="playhint" id="playhint"><span><svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l11.05-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/></svg></span></div>
       </div>
     </div>
 
@@ -79,7 +79,7 @@
       </div>
 
       <div class="actions">
-        <button class="btn primary" id="play"><span class="ico">▶</span> <span class="lbl">Play</span></button>
+        <button class="btn primary" id="play"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l11.05-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/></svg></span><span class="lbl">Play</span></button>
         <button class="btn" id="save">Save</button>
         <button class="btn" id="share">Share link</button>
         <button class="btn" id="rec">Export video</button>
@@ -109,14 +109,14 @@
         <input type="file" id="v-file" accept="video/*" hidden>
         <span class="drop-in">
           <span class="drop-ico">＋</span>
-          <b>Drop a video here</b>
-          <small>or click to choose · it never leaves your device</small>
+          <b>Add a video</b>
+          <small>Tap to choose, or drop a file here. It never leaves your device.</small>
         </span>
       </label>
       <div class="vwrap" id="v-wrap" hidden>
         <canvas id="v-canvas" width="1080" height="1920"></canvas>
         <div class="vbar">
-          <button id="v-toggle" class="vbtn" aria-label="Play or pause">▶</button>
+          <button id="v-toggle" class="vbtn" aria-label="Play or pause"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l11.05-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/></svg></button>
           <input type="range" id="v-seek" min="0" max="1" step="0.01" value="0" aria-label="Seek">
           <span id="v-time">0:00</span>
         </div>
@@ -130,7 +130,7 @@
 
       <div class="step">
         <div class="step-h"><span class="n">01</span> Video</div>
-        <div class="vinfo" id="v-info">No video yet. Drop one on the left.</div>
+        <div class="vinfo" id="v-info">No video yet. Add one to get started.</div>
       </div>
 
       <div class="step">
@@ -174,7 +174,7 @@
       </div>
 
       <div class="actions">
-        <button class="btn primary" id="v-play" disabled><span class="ico">▶</span> <span class="lbl">Play</span></button>
+        <button class="btn primary" id="v-play" disabled><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l11.05-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/></svg></span><span class="lbl">Play</span></button>
         <button class="btn" id="v-export" disabled style="grid-column: span 2">Export video</button>
         <button class="btn" id="v-replace" style="grid-column: span 2">Choose another video</button>
       </div>
@@ -195,12 +195,17 @@
   </section>
 </main>
 
+<div class="mobilebar" id="mobilebar">
+  <button class="mb-gen" id="mb-gen">Generate</button>
+  <button class="mb-play" id="mb-play"><span class="ico"><svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l11.05-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/></svg></span><span class="lbl">Play</span></button>
+</div>
+
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="js/engine.js"></script>
-<script src="js/render.js"></script>
-<script src="js/audio.js"></script>
-<script src="js/app.js"></script>
-<script src="js/video.js"></script>
+<script src="js/engine.js?v=7"></script>
+<script src="js/render.js?v=7"></script>
+<script src="js/audio.js?v=7"></script>
+<script src="js/app.js?v=7"></script>
+<script src="js/video.js?v=7"></script>
 </body>
 </html>

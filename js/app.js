@@ -1,6 +1,14 @@
 // Chord Study — app: state, UI, library, sharing, video export.
 (() => {
 const $ = id => document.getElementById(id);
+// Transport icons (crisp SVG instead of text symbols)
+const svg = d => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${d}</svg>`;
+const ICON = {
+  play: svg('<path d="M8 5.14v13.72a1 1 0 0 0 1.52.85l11.05-6.86a1 1 0 0 0 0-1.7L9.52 4.29A1 1 0 0 0 8 5.14Z" fill="currentColor"/>'),
+  pause: svg('<rect x="6" y="4.5" width="4" height="15" rx="1.2" fill="currentColor"/><rect x="14" y="4.5" width="4" height="15" rx="1.2" fill="currentColor"/>'),
+  stop: svg('<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>'),
+};
+CS.ICON = ICON;
 const SPEEDS = { slow: { label: 'Slow', D: 4.0 }, medium: { label: 'Medium', D: 3.2 }, flowing: { label: 'Flowing', D: 2.5 } };
 const LIB_KEY = 'chordstudy.library.v1';
 const PREF_KEY = 'chordstudy.prefs.v1';
@@ -185,7 +193,9 @@ function seg(el, opts, cur, onPick) {
 function updateTransport() {
   const p = $('play');
   p.classList.toggle('on', S.playing);
-  p.querySelector('.ico').textContent = S.playing ? '■' : '▶';
+  p.querySelector('.ico').innerHTML = S.playing ? ICON.stop : ICON.play;
+  document.querySelectorAll('.mb-play .ico').forEach(e => { e.innerHTML = S.playing ? ICON.stop : ICON.play; });
+  document.querySelectorAll('.mb-play .lbl').forEach(e => { e.textContent = S.playing ? 'Stop' : 'Play'; });
   p.querySelector('.lbl').textContent = S.playing ? 'Stop' : 'Play';
   $('playhint').classList.toggle('show', !S.playing && !rec);
   $('rec').textContent = rec ? 'Recording…' : 'Export video';
@@ -272,7 +282,8 @@ function fromHash() {
 let rec = null, recChunks = [], recType = '';
 function startRecording() {
   if (rec) return;
-  player.ensure();
+  player.wake();
+  if (!player.recDest || !cv.captureStream) { toast('Video export is not supported in this browser.'); return; }
   const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   recType = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
   if (!recType) { toast('Video export is not supported in this browser.'); return; }
@@ -312,6 +323,7 @@ function finishRecording(keep) {
 // ------------------------------------------------------------ views
 function show(view) {
   document.querySelectorAll('main > section').forEach(s => { s.hidden = s.id !== 'view-' + view; });
+  document.body.dataset.view = view;
   document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   if (view !== 'create' && S.playing && !rec) stop();
   if (view === 'library') renderLibrary();
@@ -339,6 +351,8 @@ function syncControls() {
 
 // ------------------------------------------------------------ wiring
 $('generate').onclick = generate;
+$('mb-gen').onclick = generate;
+$('mb-play').onclick = () => toggle();
 $('play').onclick = toggle;
 $('card').onclick = toggle;
 $('card').onkeydown = e => { if (e.key === 'Enter') toggle(); };
@@ -517,6 +531,7 @@ if (!fromHash()) {
   const key = keyFor(7, false); // G major — the reel's progression to start
   setStudy(CS.generate('dreamy', key, 0), key);
 }
+document.body.dataset.view = 'create';
 syncControls();
 mountDyn($('dyn'), () => S.tl ? S.tl.total : 0, createProgress);
 renderLibraryCount();

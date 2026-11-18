@@ -208,8 +208,7 @@ function applyMix() {
 async function play() {
   if (!V.ready || V.rec && !V.recStarting) return;
   app.stopCreate();
-  player.ensure();
-  player.A.resume();
+  player.wake();
   player.attachMedia(vid);
   if (vid.ended || vid.currentTime >= V.dur - 0.05) { vid.currentTime = 0; await once(vid, 'seeked', 2000); }
   try { await vid.play(); } catch (e) { app.toast('Could not play this video.'); }
@@ -241,8 +240,8 @@ async function exportVideo() {
   const types = ['video/mp4;codecs=avc1,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'];
   const type = types.find(t => window.MediaRecorder && MediaRecorder.isTypeSupported(t));
   if (!type) { app.toast('Video export is not supported in this browser.'); return; }
-  player.ensure();
-  player.A.resume();
+  if (!player.recDest || !cv.captureStream) { app.toast('Video export is not supported in this browser.'); return; }
+  player.wake();
   player.attachMedia(vid);
   pause();
   vid.currentTime = 0;
@@ -409,9 +408,9 @@ function updateUI() {
   const p = $('v-play');
   p.disabled = !V.ready || !!V.rec;
   p.classList.toggle('on', V.playing);
-  p.querySelector('.ico').textContent = V.playing ? '❚❚' : '▶';
+  p.querySelector('.ico').innerHTML = V.playing ? CS.ICON.pause : CS.ICON.play;
   p.querySelector('.lbl').textContent = V.playing ? 'Pause' : 'Play';
-  $('v-toggle').textContent = V.playing ? '❚❚' : '▶';
+  $('v-toggle').innerHTML = V.playing ? CS.ICON.pause : CS.ICON.play;
   const ex = $('v-export');
   ex.disabled = !V.ready;
   ex.textContent = V.rec ? 'Cancel export' : 'Export video';

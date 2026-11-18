@@ -55,20 +55,51 @@ function envelope(d) {
 const toneFor = v => 1400 * Math.pow(16000 / 1400, Math.max(0, Math.min(1, v)));
 const marking = v => v < 0.2 ? 'pp' : v < 0.38 ? 'p' : v < 0.55 ? 'mp' : v < 0.72 ? 'mf' : v < 0.88 ? 'f' : 'ff';
 
+// ---- mobile audio unlock
+// iPhones route Web Audio through the "ambient" channel, which the silent switch mutes.
+// Playing a looping, silent <audio> element (and asking for the "playback" session)
+// moves the page into the media channel so the chords are heard like a video would be.
+let silentEl = null;
+function silentWavURL() {
+  const rate = 8000, n = rate / 2; // half a second of silence
+  const buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const str = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  str(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  str(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+function unlockMediaChannel() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  try {
+    if (!silentEl) {
+      silentEl = document.createElement('audio');
+      silentEl.src = silentWavURL();
+      silentEl.loop = true;
+      silentEl.setAttribute('playsinline', '');
+      silentEl.setAttribute('x-webkit-airplay', 'deny');
+      silentEl.preload = 'auto';
+    }
+    const p = silentEl.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+
 class Player {
   constructor() { this.A = null; this.voices = []; this.notes = []; this.struck = []; this.timer = null; this.t0 = 0; }
 
   ensure() {
     if (this.A) return;
-    const A = this.A = new (window.AudioContext || window.webkitAudioContext)();
+    const A = this.A = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
     const comp = A.createDynamicsCompressor();
     comp.threshold.value = -18; comp.ratio.value = 3; comp.attack.value = 0.03; comp.release.value = 0.4;
     const out = A.createGain(); out.gain.value = 0.9;
     // dyn: the crescendo/swell envelope, after the compressor so it isn't flattened
     this.dyn = A.createGain(); this.dyn.gain.value = 1;
     comp.connect(this.dyn); this.dyn.connect(out); out.connect(A.destination);
-    this.recDest = A.createMediaStreamDestination();
-    out.connect(this.recDest);
+    try { this.recDest = A.createMediaStreamDestination(); out.connect(this.recDest); }
+    catch (e) { this.recDest = null; } // not every mobile browser can record; playback still works
 
     this.bus = A.createGain(); this.bus.gain.value = 0.75;
     const dry = A.createGain(); dry.gain.value = 0.62;
@@ -145,9 +176,15 @@ class Player {
 
   // fromK: start playback at chord k (so you can hear a swapped chord right away)
   // opts.offset: start mid-timeline at exactly this time (video sync); opts.releaseLead: fade-out lead
-  start(tl, soundId, fromK = 0, opts = {}) {
+  // Call from inside a tap/click: resumes the audio context and unlocks phone speakers.
+  wake() {
     this.ensure();
-    this.A.resume();
+    unlockMediaChannel();
+    if (this.A.state !== 'running') { const p = this.A.resume(); if (p && p.catch) p.catch(() => {}); }
+  }
+
+  start(tl, soundId, fromK = 0, opts = {}) {
+    this.wake();
     this.stop(0.15);
     this.tl = tl;
     this.sound = SOUNDS[soundId] || SOUNDS.strings;
