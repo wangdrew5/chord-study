@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="styles.css?v=7">
+<link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
 <header class="top">
@@ -169,7 +169,15 @@
       </div>
 
       <div class="step">
-        <div class="step-h"><span class="n">07</span> Dynamics <span class="aside">Same settings as Create</span></div>
+        <div class="step-h"><span class="n">07</span> Fades <span class="aside" id="v-fadehint"></span></div>
+        <div class="fade-row"><span>Fade in</span><div class="seg" id="v-fadein"></div></div>
+        <div class="fade-row"><span>Fade out</span><div class="seg" id="v-fadeout"></div></div>
+        <div class="fade-row"><span>Colour</span><div class="seg" id="v-fadecolor"></div></div>
+        <label class="check fade-check"><input type="checkbox" id="v-fadeaudio" checked> Fade the sound too</label>
+      </div>
+
+      <div class="step">
+        <div class="step-h"><span class="n">08</span> Dynamics <span class="aside">Same settings as Create</span></div>
         <div class="dyn" id="v-dyn"></div>
       </div>
 
@@ -202,10 +210,10 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
-<script src="js/engine.js?v=7"></script>
-<script src="js/render.js?v=7"></script>
-<script src="js/audio.js?v=7"></script>
-<script src="js/app.js?v=7"></script>
-<script src="js/video.js?v=7"></script>
+<script src="js/engine.js?v=8"></script>
+<script src="js/render.js?v=8"></script>
+<script src="js/audio.js?v=8"></script>
+<script src="js/app.js?v=8"></script>
+<script src="js/video.js?v=8"></script>
 </body>
 </html>

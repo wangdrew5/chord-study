@@ -217,6 +217,15 @@ h1 { font-size: 40px; line-height: 1.02; letter-spacing: -.035em; font-weight: 8
 .mix { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: center; font-size: 12px; font-weight: 600; color: var(--muted); }
 .mix input { width: 100%; accent-color: var(--accent); }
 
+/* fades */
+.fade-row { display: grid; grid-template-columns: 66px 1fr; gap: 12px; align-items: center; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.fade-row .seg button { padding: 8px 2px; font-size: 12px; }
+.fade-check { font-size: 13px; color: var(--ink); margin-top: 8px; }
+#v-fadecolor button::before { content: ''; display: inline-block; width: 9px; height: 9px; margin-right: 6px; vertical-align: -1px; box-shadow: 0 0 0 1px rgba(128,128,128,.5); }
+#v-fadecolor button:nth-child(1)::before { background: #000; }
+#v-fadecolor button:nth-child(2)::before { background: #fff; }
+#v-fadecolor button:nth-child(3)::before { background: #EEEBE4; }
+
 /* library */
 .library { padding: 40px 32px 64px; max-width: 1180px; margin: 0 auto; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 22px; }

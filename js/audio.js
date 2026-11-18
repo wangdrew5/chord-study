@@ -97,8 +97,10 @@ class Player {
     const out = A.createGain(); out.gain.value = 0.9;
     // dyn: the crescendo/swell envelope, after the compressor so it isn't flattened
     this.dyn = A.createGain(); this.dyn.gain.value = 1;
-    comp.connect(this.dyn); this.dyn.connect(out); out.connect(A.destination);
-    try { this.recDest = A.createMediaStreamDestination(); out.connect(this.recDest); }
+    // master: overall fade in/out (used by the Video tab), applies to chords and the clip's own audio
+    this.master = A.createGain(); this.master.gain.value = 1;
+    comp.connect(this.dyn); this.dyn.connect(out); out.connect(this.master); this.master.connect(A.destination);
+    try { this.recDest = A.createMediaStreamDestination(); this.master.connect(this.recDest); }
     catch (e) { this.recDest = null; } // not every mobile browser can record; playback still works
 
     this.bus = A.createGain(); this.bus.gain.value = 0.75;
@@ -134,6 +136,27 @@ class Player {
   }
 
   now() { return this.A ? this.A.currentTime - this.t0 : 0; }
+
+  // ---- master fade (fade = { in, out, span } in seconds, or null)
+  setFade(fade) {
+    this.fade = fade;
+    if (this.A && this.timer) this.scheduleFade(Math.max(0, this.now() + 0.1), this.A.currentTime + 0.1);
+  }
+  scheduleFade(fromT, at) {
+    const g = this.master.gain, now = this.A.currentTime;
+    g.cancelScheduledValues(0);
+    g.setValueAtTime(g.value, now);
+    const f = this.fade;
+    if (!f || (!f.in && !f.out)) { g.setTargetAtTime(1, now, 0.03); return; }
+    const level = t => Math.max(0, Math.min(1, f.in ? t / f.in : 1, f.out ? (f.span - t) / f.out : 1));
+    const dur = f.span - fromT;
+    if (dur < 0.05) { g.setTargetAtTime(level(f.span), now, 0.03); return; }
+    g.linearRampToValueAtTime(level(fromT), at);
+    const n = Math.max(2, Math.ceil(dur * 30));
+    const curve = new Float32Array(n);
+    for (let i = 0; i < n; i++) curve[i] = level(fromT + dur * i / (n - 1));
+    g.setValueCurveAtTime(curve, at + 0.002, dur);
+  }
 
   // ---- dynamics envelope
   // Change the envelope live (re-schedules from the current playback position).
@@ -193,6 +216,8 @@ class Player {
     this.t0 = at - (opts.offset != null ? opts.offset : tl.startOf(fromK));
     this.releaseLead = opts.releaseLead ?? 0.4;
     this.span = opts.span || tl.total;
+    this.fade = opts.fade || null;
+    this.scheduleFade(opts.offset != null ? opts.offset : tl.startOf(fromK), at);
     this.env = envelope(opts.dyn !== undefined ? (this.dynCfg = opts.dyn) : this.dynCfg);
     this.scheduleDyn(opts.offset != null ? opts.offset : tl.startOf(fromK), at);
     this.lastStrike = 0;

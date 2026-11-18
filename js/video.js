@@ -11,6 +11,7 @@ const V = {
   mode: 'progression', sel: 0, timing: 'cuts', mix: 0.55, sound: app.S.sound, overlay: 'swiss',
   tokens: null, key: null, st: null, tl: null, D: 3, snapped: 0,
   playing: false, rec: null, lastSync: 0,
+  fadeIn: 1, fadeOut: 2, fadeColor: 'black', fadeAudio: true,
 };
 const vid = $('v-video');
 const cv = $('v-canvas');
@@ -61,6 +62,7 @@ async function load(file) {
   if (!V.tokens) pullFromCreate(false);
   fit();
   updateUI();
+  fadesChanged();
   info(file.name);
   detectCuts(V.scanId, file.name);
 }
@@ -198,7 +200,7 @@ function startAudio() {
   if (!V.tl) return;
   player.attachMedia(vid);
   applyMix();
-  player.start(V.tl, V.sound, 0, { offset: vid.currentTime + 0.08, releaseLead: 1.8, dyn: app.S.dyn, span: V.dur });
+  player.start(V.tl, V.sound, 0, { offset: vid.currentTime + 0.08, releaseLead: 1.8, dyn: app.S.dyn, span: V.dur, fade: audioFade() });
   V.lastSync = performance.now();
 }
 function applyMix() {
@@ -282,6 +284,13 @@ function draw() {
     ctx.drawImage(vid, 0, 0, V.w, V.h);
     const t = vid.currentTime;
     if (V.tl && V.overlay !== 'none') (V.overlay === 'swiss' ? swissBar : minimal)(t);
+    const cover = 1 - fadeLevel(t);
+    if (cover > 0.001) {
+      ctx.globalAlpha = cover;
+      ctx.fillStyle = FADE_COLORS[V.fadeColor];
+      ctx.fillRect(0, 0, V.w, V.h);
+      ctx.globalAlpha = 1;
+    }
     // keep the chords locked to the video clock
     if (V.playing && performance.now() - V.lastSync > 1000) {
       V.lastSync = performance.now();
@@ -289,6 +298,37 @@ function draw() {
     }
   }
   requestAnimationFrame(draw);
+}
+
+// ------------------------------------------------------------ fades
+const FADE_COLORS = { black: '#000', white: '#fff', cream: BG };
+const FADE_TIMES = { 0: { label: 'Off' }, 0.5: { label: '0.5s' }, 1: { label: '1s' }, 2: { label: '2s' }, 3: { label: '3s' } };
+// keep fades from swallowing short clips: together they never exceed 80% of the length
+function fadeTimes() {
+  const L = V.dur || 0;
+  let fi = V.fadeIn, fo = V.fadeOut;
+  if (L && fi + fo > L * 0.8) { const k = (L * 0.8) / (fi + fo); fi *= k; fo *= k; }
+  return { fi, fo, L };
+}
+// picture visibility at time t: 0 = fully covered by the fade colour, 1 = clear
+function fadeLevel(t) {
+  const { fi, fo, L } = fadeTimes();
+  if (!L) return 1;
+  // smoothstep so the fade eases rather than ramps
+  const s = x => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+  return Math.min(fi ? s(t / fi) : 1, fo ? s((L - t) / fo) : 1);
+}
+function audioFade() {
+  if (!V.fadeAudio) return null;
+  const { fi, fo, L } = fadeTimes();
+  return fi || fo ? { in: fi, out: fo, span: L } : null;
+}
+function fadesChanged() {
+  player.setFade(V.playing ? audioFade() : null);
+  const { fi, fo } = fadeTimes();
+  const name = { black: 'black', white: 'white', cream: 'cream' }[V.fadeColor];
+  $('v-fadehint').textContent = !fi && !fo ? 'No fades'
+    : [fi ? `in from ${name} ${fi.toFixed(1)}s` : '', fo ? `out to ${name} ${fo.toFixed(1)}s` : ''].filter(Boolean).join(' · ');
 }
 
 function chordState(t) {
@@ -427,6 +467,12 @@ app.seg($('v-sound'), CS.SOUNDS, V.sound, id => { V.sound = id; if (V.playing) s
 app.seg($('v-overlay'), { swiss: { label: 'Swiss bar' }, minimal: { label: 'Minimal' }, none: { label: 'None' } }, V.overlay,
   id => { V.overlay = id; });
 
+app.seg($('v-fadein'), FADE_TIMES, String(V.fadeIn), id => { V.fadeIn = +id; fadesChanged(); });
+app.seg($('v-fadeout'), FADE_TIMES, String(V.fadeOut), id => { V.fadeOut = +id; fadesChanged(); });
+app.seg($('v-fadecolor'), { black: { label: 'Black' }, white: { label: 'White' }, cream: { label: 'Cream' } }, V.fadeColor,
+  id => { V.fadeColor = id; fadesChanged(); });
+$('v-fadeaudio').onchange = e => { V.fadeAudio = e.target.checked; fadesChanged(); };
+
 $('v-mix').oninput = e => { V.mix = +e.target.value; applyMix(); updateUI(); };
 $('v-play').onclick = toggle;
 $('v-toggle').onclick = toggle;
@@ -459,6 +505,7 @@ document.addEventListener('keydown', e => {
 });
 
 $('v-mix').value = V.mix;
+fadesChanged();
 const dynView = app.mountDyn($('v-dyn'), () => V.dur || 0, () => V.playing && V.dur ? vid.currentTime / V.dur : null);
 updateUI();
 hints();
