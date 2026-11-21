@@ -5,18 +5,18 @@ const mtof = m => 440 * Math.pow(2, (m - 69) / 12);
 
 const SOUNDS = {
   strings: {
-    label: 'Strings', type: 'sustain', wet: 0.55, dip: 0.8,
+    label: 'Strings', type: 'sustain', wet: 0.55, dip: 0.8, trim: 1.6,
     upper: { types: ['sawtooth', 'sawtooth', 'sawtooth', 'sawtooth'], det: [-11, -4, 3, 9], gains: [1, 1, 1, 1],
              lp: 2300, breathe: 500, attack: 0.7, vib: 7, level: 0.085 },
     bass:  { types: ['triangle', 'sawtooth'], det: [-4, 4], gains: [1, 0.35], lp: 650, breathe: 80, attack: 0.5, vib: 2, level: 0.15 },
   },
   pad: {
-    label: 'Pad', type: 'sustain', wet: 0.85, dip: 0.93,
+    label: 'Pad', type: 'sustain', wet: 0.85, dip: 0.93, trim: 0.95,
     upper: { types: ['triangle', 'sawtooth', 'sine', 'sine'], det: [-6, 5, 0, 1200], gains: [1, 0.3, 0.8, 0.16],
              lp: 1400, breathe: 380, attack: 1.3, vib: 3, level: 0.12 },
     bass:  { types: ['sine', 'triangle'], det: [0, 3], gains: [1, 0.5], lp: 420, breathe: 40, attack: 1.0, vib: 0, level: 0.18 },
   },
-  keys: { label: 'Keys', type: 'struck', wet: 0.5 },
+  keys: { label: 'Keys', type: 'struck', wet: 0.5, trim: 1.25 },
 };
 
 function impulse(ctx, dur, decay) {
@@ -94,13 +94,20 @@ class Player {
     const A = this.A = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'playback' });
     const comp = A.createDynamicsCompressor();
     comp.threshold.value = -18; comp.ratio.value = 3; comp.attack.value = 0.03; comp.release.value = 0.4;
-    const out = A.createGain(); out.gain.value = 0.9;
+    // makeup gain: lifts the chords ~11 dB; the limiter below keeps the peaks clean
+    const out = A.createGain(); out.gain.value = 3.2;
     // dyn: the crescendo/swell envelope, after the compressor so it isn't flattened
     this.dyn = A.createGain(); this.dyn.gain.value = 1;
     // master: overall fade in/out (used by the Video tab), applies to chords and the clip's own audio
     this.master = A.createGain(); this.master.gain.value = 1;
-    comp.connect(this.dyn); this.dyn.connect(out); out.connect(this.master); this.master.connect(A.destination);
-    try { this.recDest = A.createMediaStreamDestination(); this.master.connect(this.recDest); }
+    // limiter: brickwall-style ceiling just under 0 dBFS so louder never means distorted
+    const limiter = A.createDynamicsCompressor();
+    limiter.threshold.value = -2; limiter.knee.value = 0; limiter.ratio.value = 20;
+    limiter.attack.value = 0.002; limiter.release.value = 0.2;
+    this.limiter = limiter;
+    comp.connect(this.dyn); this.dyn.connect(out); out.connect(this.master);
+    this.master.connect(limiter); limiter.connect(A.destination);
+    try { this.recDest = A.createMediaStreamDestination(); limiter.connect(this.recDest); }
     catch (e) { this.recDest = null; } // not every mobile browser can record; playback still works
 
     this.bus = A.createGain(); this.bus.gain.value = 0.75;
@@ -117,7 +124,7 @@ class Player {
     this.dynTone = A.createBiquadFilter(); this.dynTone.type = 'lowpass'; this.dynTone.frequency.value = 20000; this.dynTone.Q.value = 0.5;
     warm.connect(this.dynTone); this.dynTone.connect(this.music); this.music.connect(comp);
     this.external = A.createGain(); this.external.gain.value = 0;
-    this.external.connect(out);
+    this.external.connect(this.master); // the clip's own audio skips the chord makeup gain
     this.out = out;
   }
 
@@ -224,6 +231,8 @@ class Player {
     this.nextK = fromK + 1;
     this.endScheduled = false;
     this.wet.gain.setTargetAtTime(this.sound.wet, this.A.currentTime, 0.05);
+    // per-sound trim so Strings, Pad and Keys come out equally loud
+    this.bus.gain.setTargetAtTime(0.75 * (this.sound.trim || 1), this.A.currentTime, 0.05);
     if (this.sound.type === 'sustain') {
       this.voices = [0, 1, 2, 3, 4].map(v => this.makeVoice(v, tl.chordAt(fromK).pitches[v], at));
     } else {
